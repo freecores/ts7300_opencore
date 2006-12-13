@@ -278,8 +278,9 @@ assign bd_pad[7:0] = ep93xx_databus_oe ?
   ep93xx_dat_latch[15:8] : 8'hzz;
 assign isa_wait_pad =  start_cycle_negedge ?  epwbm_done : 1'bz; 
 assign epwbm_adr_o[23:2] = ep93xx_address[23:2];
+reg ep93xx_address1_q;
 assign epwbm_adr_o[0] = ep93xx_address[0];
-assign epwbm_adr_o[1] = epwbm_done32 ? 1'b1 : ep93xx_address[1];
+assign epwbm_adr_o[1] = ep93xx_address1_q;
 
 /* Use Altera's PLL to multiply 25Mhz from the ethernet PHY to 75Mhz */
 pll clkgencore(
@@ -301,13 +302,11 @@ always @(posedge clk_75mhz_pad) begin
   bd_oe_posedge_q <= bd_oe_posedge;
   isa_add1_pad_q <= isa_add1_pad;
 
-  if (bd_oe_negedge_q && epwbm_we_o && !epwbm_done) begin
+  if ((bd_oe_negedge_q && epwbm_we_o) ||
+    (start_cycle_posedge_q && !epwbm_we_o) && !epwbm_done) begin
     epwbm_stb_o <= 1'b1;
+    ep93xx_address1_q <= isa_add1_pad_q;
     epwbm_dat_o <= {bd_pad[7:0], fl_d_pad[7:0]};
-  end
-
-  if (start_cycle_posedge_q && !epwbm_we_o && !epwbm_done) begin
-    epwbm_stb_o <= 1'b1;
   end
 
   if (epwbm_stb_o && epwbm_ack_i) begin
@@ -316,18 +315,15 @@ always @(posedge clk_75mhz_pad) begin
     ep93xx_dat_latch <= epwbm_dat_i;
   end
 
-  if ((epwbm_done || (epwbm_stb_o && epwbm_ack_i)) && 
-    !epwbm_done32 && bd_oe_negedge_q &&
-    (ep93xx_address[1] != isa_add1_pad_q)) begin
+  if (epwbm_done && !epwbm_done32 && (ep93xx_address[1] != isa_add1_pad_q)) begin
     epwbm_done <= 1'b0;
     epwbm_done32 <= 1'b1;
-    epwbm_stb_o <= 1'b1;
   end
 
   ep93xx_end_q <= 1'b0;
 
-  if ((start_cycle_negedge && start_cycle_posedge && 
-    bd_oe_negedge && bd_oe_posedge) || !pll_locked) begin
+  if ((start_cycle_negedge_q && start_cycle_posedge_q && 
+    bd_oe_negedge_q && bd_oe_posedge) || !pll_locked) begin
     ep93xx_end <= 1'b1;
     ep93xx_end_q <= 1'b0;
   end
