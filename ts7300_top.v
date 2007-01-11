@@ -245,6 +245,10 @@ inout reg hsync_pad;
 inout reg vsync_pad;
 output sdram_clk_pad;
 
+/* Set to 1'b0 to disable ethernet.  If you disable this, don't
+ * attempt to load the ethernet driver module! */
+parameter ethernet = 1'b1;
+
 /* Bus cycles from the ep9302 processor come in to the FPGA multiplexed by
  * the MAX2 CPLD on the TS-7300.  Any access on the ep9302 for addresses 
  * 0x72000000 - 0x72ffffff are routed to the FPGA.  The ep9302 CS7 SMCBCR register
@@ -347,11 +351,9 @@ always @(posedge ep93xx_end_q or posedge start_cycle_negedge_aset) begin
   else start_cycle_negedge <= 1'b0;
 end
 
-wire start_cycle_posedge_aset = start_cycle_negedge && start_cycle_pad && 
-  !bd_oe_negedge && pll_locked;
-always @(posedge ep93xx_end_q or posedge start_cycle_posedge_aset) begin
-  if (start_cycle_posedge_aset) start_cycle_posedge <= 1'b1;
-  else start_cycle_posedge <= 1'b0;
+always @(posedge start_cycle_pad or posedge ep93xx_end_q) begin
+  if (ep93xx_end_q) start_cycle_posedge <= 1'b0;
+  else if (start_cycle_negedge) start_cycle_posedge <= 1'b1;
 end
 
 always @(posedge start_cycle_pad) begin
@@ -379,11 +381,9 @@ always @(posedge start_cycle_pad) begin
   ep93xx_address[0] <= fl_d_pad[6];
 end
 
-wire bd_oe_negedge_aset = start_cycle_posedge && !bd_oe_pad &&
- !bd_oe_posedge && pll_locked;
-always @(posedge ep93xx_end_q or posedge bd_oe_negedge_aset) begin
-  if (bd_oe_negedge_aset) bd_oe_negedge <= 1'b1;
-  else bd_oe_negedge <= 1'b0;
+always @(negedge bd_oe_pad or posedge ep93xx_end_q) begin
+  if (ep93xx_end_q) bd_oe_negedge <= 1'b0;
+  else if (start_cycle_posedge) bd_oe_negedge <= 1'b1;
 end
 
 always @(posedge bd_oe_pad or posedge ep93xx_end_q) begin
@@ -482,9 +482,9 @@ wire [31:0] ethramcore_dat;
  */
 reg ethramcore_stb;
 wb32_blockram #(.endian_swap(1'b1)) ethramcore(
-  .wb_clk_i(wb32m_clk_o),
+  .wb_clk_i(wb32m_clk_o && ethernet),
   .wb_rst_i(wb32m_rst_o),
-  .wb2_cyc_i(wb32m_cyc_o),
+  .wb2_cyc_i(wb32m_cyc_o && ethernet),
   .wb2_stb_i(ethramcore_stb),
   .wb2_we_i(wb32m_we_o),
   .wb2_adr_i(wb32m_adr_o[10:0]),
@@ -493,7 +493,7 @@ wb32_blockram #(.endian_swap(1'b1)) ethramcore(
   .wb2_sel_i(wb32m_sel_o),
   .wb2_ack_o(ethramcore_ack),
 
-  .wb1_cyc_i(ethwbm_cyc_o),
+  .wb1_cyc_i(ethwbm_cyc_o && ethernet),
   .wb1_stb_i(ethwbm_stb_o),
   .wb1_we_i(ethwbm_we_o),
   .wb1_adr_i(ethwbm_adr_o[12:2]), 
@@ -510,7 +510,7 @@ reg ethcore_mdo_q, ethcore_mdoe_q;
 reg ethcore_stb;
 assign eth_mdio_pad = ethcore_mdoe_q ? ethcore_mdo_q : 1'bz;
 eth_top ethcore(
-  .wb_clk_i(wb32m_clk_o),
+  .wb_clk_i(wb32m_clk_o && ethernet),
   .wb_rst_i(wb32m_rst_o),
   .wb_dat_i(wb32m_dat_o),
   .wb_dat_o(ethcore_dat),
@@ -531,13 +531,13 @@ eth_top ethcore(
   .m_wb_ack_i(ethwbm_ack_i), 
 
   //TX
-  .mtx_clk_pad_i(eth_txclk_pad), 
+  .mtx_clk_pad_i(eth_txclk_pad && ethernet), 
   .mtxd_pad_o(eth_txdat_pad), 
   .mtxen_pad_o(eth_txen_pad), 
   .mtxerr_pad_o(eth_txerr_pad),
 
   //RX
-  .mrx_clk_pad_i(eth_rxclk_pad), 
+  .mrx_clk_pad_i(eth_rxclk_pad && ethernet), 
   .mrxd_pad_i(eth_rxdat_pad), 
   .mrxdv_pad_i(eth_rxdv_pad), 
   .mrxerr_pad_i(eth_rxerr_pad), 
